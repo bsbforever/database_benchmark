@@ -177,19 +177,11 @@
                             </div>
                         </div>
                         <div class="mt-2">
-                            <label for="write-ratio" class="form-label small">读写比例 (共10个SQL)</label>
-                            <select id="write-ratio" class="form-select form-select-sm">
-                                <option value="0">(100% 读, 0% 写)</option>
-                                <option value="1">(90% 读, 10% 写)</option>
-                                <option value="2" selected>(80% 读, 20% 写)</option>
-                                <option value="3">(70% 读, 30% 写)</option>
-                                <option value="4">(60% 读, 40% 写)</option>
-                                <option value="5">(50% 读, 50% 写)</option>
-                                <option value="6">(40% 读, 60% 写)</option>
-                                <option value="7">(30% 读, 70% 写)</option>
-                                <option value="8">(20% 读, 80% 写)</option>
-                                <option value="9">(10% 读, 90% 写)</option>
-                                <option value="10">(0% 读, 100% 写)</option>
+                            <label for="scenario" class="form-label small">压测场景</label>
+                            <select id="scenario" class="form-select form-select-sm">
+                                <option value="READ_HEAVY" selected>读多写少 (4R:1W)</option>
+                                <option value="READ_ONLY">纯读取 (5R:0W)</option>
+                                <option value="WRITE_HEAVY">写多读少 (2R:3W)</option>
                             </select>
                         </div>
                         <div class="d-grid gap-2 mt-3">
@@ -250,6 +242,21 @@
                             <div class="label text-info">成功率</div>
                             <div id="summary-rate" class="value small text-info">0%</div>
                         </div>
+                        <hr class="my-2">
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="metric-display">
+                                    <div class="label">平均 TPS</div>
+                                    <div id="summary-avg-tps" class="value small">0</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-display">
+                                    <div class="label">平均 QPS</div>
+                                    <div id="summary-avg-qps" class="value small">0</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -281,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Control & Display
     const intervalInput = document.getElementById('interval');
     const sampleRateInput = document.getElementById('sampleRate');
-    const writeRatioSelect = document.getElementById('write-ratio');
+    const scenarioSelect = document.getElementById('scenario');
     const threadCountInput = document.getElementById('thread-count');
     const statusIndicator = document.getElementById('status-indicator');
     const qpsDisplay = document.getElementById('qps-display');
@@ -294,6 +301,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const summarySuccess = document.getElementById('summary-success');
     const summaryFail = document.getElementById('summary-fail');
     const summaryRate = document.getElementById('summary-rate');
+    const summaryAvgTps = document.getElementById('summary-avg-tps');
+    const summaryAvgQps = document.getElementById('summary-avg-qps');
 
     let sseClient = null;
     let savedConnections = {};
@@ -437,11 +446,13 @@ document.addEventListener('DOMContentLoaded', () => {
         summarySuccess.textContent = '0';
         summaryFail.textContent = '0';
         summaryRate.textContent = '0%';
+        summaryAvgTps.textContent = '0';
+        summaryAvgQps.textContent = '0';
 
         const params = {
             interval: intervalInput.value,
             sampleRate: sampleRateInput.value,
-            writeRatio: writeRatioSelect.value,
+            scenario: scenarioSelect.value,
             threadCount: threadCountInput.value,
             ip: ipInput.value,
             port: portInput.value,
@@ -503,6 +514,8 @@ document.addEventListener('DOMContentLoaded', () => {
             summaryFail.textContent = data.fail;
             const rate = data.total > 0 ? (data.success / data.total * 100) : 100;
             summaryRate.textContent = rate.toFixed(2) + '%';
+            summaryAvgTps.textContent = data.avgTps.toFixed(2);
+            summaryAvgQps.textContent = data.avgQps.toFixed(2);
         });
 
         sseClient.onerror = () => {

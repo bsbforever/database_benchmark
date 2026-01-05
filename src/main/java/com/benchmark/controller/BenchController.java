@@ -23,7 +23,7 @@ public class BenchController {
             // 压测参数
             @RequestParam(required = false) Long interval,
             @RequestParam(required = false) Integer sampleRate,
-            @RequestParam(required = false) Integer writeRatio,
+            @RequestParam(required = false) String scenario,
             @RequestParam(required = false) Integer threadCount,
 
             // 数据库连接参数 (可选，不传则使用默认配置)
@@ -35,7 +35,7 @@ public class BenchController {
             @RequestParam(required = false) String dbType
     ) {
         // 将参数传递给 Service 进行动态连接初始化
-        benchService.startBenchmark(interval, sampleRate, writeRatio, threadCount, ip, port, dbName, username, password, dbType);
+        benchService.startBenchmark(interval, sampleRate, scenario, threadCount, ip, port, dbName, username, password, dbType);
         return "Started with dynamic config";
     }
 

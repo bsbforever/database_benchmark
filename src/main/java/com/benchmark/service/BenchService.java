@@ -19,18 +19,19 @@ import java.util.concurrent.atomic.LongAdder;
 @Service
 public class BenchService {
 
-    private static final int SQLS_PER_TX = 10;
+    private static final int SQLS_PER_TX = 5; // Reverted back for scenario-based logic
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private DruidDataSource dataSource;
     private String currentDbType;
-    private int currentWriteRatio;
+    private String currentScenario;
 
     // Concurrency
     private ExecutorService benchmarkExecutor;
+    private long benchmarkStartTime;
 
-    // Performance Counters (upgraded to LongAdder for high-concurrency)
+    // Performance Counters
     private final LongAdder successTxCount = new LongAdder();
     private final LongAdder failedTxCount = new LongAdder();
     private final LongAdder totalSqlCount = new LongAdder();
@@ -52,25 +53,23 @@ public class BenchService {
     @Value("${ob.target.log-sample-rate:10}") private int defaultSampleRate;
     @Value("${ob.target.data-range:100000}") private int defaultDataRange;
 
-    public void startBenchmark(Long intervalMs, Integer sampleRate, Integer writeRatio, Integer threadCount,
+    public void startBenchmark(Long intervalMs, Integer sampleRate, String scenario, Integer threadCount,
                                String ip, String port, String dbName, String user, String pass, String dbType) {
         if (isRunning.getAndSet(true)) return;
+        this.benchmarkStartTime = System.currentTimeMillis();
 
-        // Set benchmark parameters with defaults
         long actualInterval = (intervalMs != null && intervalMs >= 0) ? intervalMs : defaultInterval;
         int actualSampleRate = (sampleRate != null && sampleRate > 0) ? sampleRate : defaultSampleRate;
         int actualThreadCount = (threadCount != null && threadCount > 0) ? threadCount : 16;
         this.currentDbType = StringUtils.hasText(dbType) ? dbType : "MySQL";
-        this.currentWriteRatio = (writeRatio != null && writeRatio >= 0 && writeRatio <= 10) ? writeRatio : 2;
+        this.currentScenario = StringUtils.hasText(scenario) ? scenario : "READ_HEAVY";
 
-        // Set DB connection parameters with defaults
         String targetIp = StringUtils.hasText(ip) ? ip : defaultIp;
         String targetPort = StringUtils.hasText(port) ? port : defaultPort;
         String targetDb = StringUtils.hasText(dbName) ? dbName : defaultDbName;
         String targetUser = StringUtils.hasText(user) ? user : defaultUsername;
         String targetPass = StringUtils.hasText(pass) ? pass : defaultPassword;
 
-        // Reset all counters
         successTxCount.reset();
         failedTxCount.reset();
         totalSqlCount.reset();
@@ -78,7 +77,6 @@ public class BenchService {
         lastFailedTxCount = 0;
         lastTotalSqlCount = 0;
 
-        // Main benchmark logic starts in a new thread to avoid blocking the web server
         new Thread(() -> {
             try {
                 sendLog("LOG", String.format("🔄 正在连接 %s 数据库 [%s:%s]...", this.currentDbType, targetIp, targetPort));
@@ -89,13 +87,11 @@ public class BenchService {
                 initSchema();
 
                 sendLog("LOG", "✅ 连接成功，表结构已就绪。开始压测...");
-                sendLog("LOG", String.format("🚀 目标: %s:%s | 并发数: %d | 频率: %dms | 读写比: %d:%d",
-                        targetIp, targetPort, actualThreadCount, actualInterval, (10 - this.currentWriteRatio), this.currentWriteRatio));
+                sendLog("LOG", String.format("🚀 目标: %s:%s | 场景: %s | 并发数: %d | 频率: %dms",
+                        targetIp, targetPort, this.currentScenario, actualThreadCount, actualInterval));
 
-                // Start metric monitoring
                 startMonitor();
                 
-                // Start benchmark worker threads
                 benchmarkExecutor = Executors.newFixedThreadPool(actualThreadCount);
                 for (int i = 0; i < actualThreadCount; i++) {
                     benchmarkExecutor.submit(() -> {
@@ -107,13 +103,12 @@ public class BenchService {
                                 try {
                                     TimeUnit.MILLISECONDS.sleep(actualInterval);
                                 } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt(); // Preserve interrupt status
+                                    Thread.currentThread().interrupt();
                                 }
                             }
                         }
                     });
                 }
-
             } catch (Exception e) {
                 isRunning.set(false);
                 sendLog("LOG", "<span style='color:red'>❌ 启动失败: " + e.getMessage() + "</span>");
@@ -131,7 +126,6 @@ public class BenchService {
     public void stopBenchmark() {
         if (!isRunning.getAndSet(false)) return;
 
-        // Shutdown all services
         if (benchmarkExecutor != null) benchmarkExecutor.shutdownNow();
         if (statsScheduler != null) statsScheduler.shutdownNow();
 
@@ -148,7 +142,6 @@ public class BenchService {
             generateReport();
             sendLog("LOG", "🛑 压测已停止，连接已释放。");
 
-            // Gracefully close client connections
             for (SseEmitter emitter : emitters) {
                 try {
                     emitter.complete();
@@ -194,9 +187,6 @@ public class BenchService {
         boolean isSuccess = true;
         long currentId = ThreadLocalRandom.current().nextLong(defaultDataRange);
 
-        int numWrites = this.currentWriteRatio;
-        int numReads = 10 - numWrites;
-
         String nowFunction = "DB2".equals(currentDbType) ? "CURRENT_TIMESTAMP" : "NOW()";
         String replaceSql, updateSql;
 
@@ -215,33 +205,36 @@ public class BenchService {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
-                for (int i = 0; i < numReads; i++) {
-                    try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) {
-                        stmt.setLong(1, currentId);
-                        stmt.executeQuery();
-                        totalSqlCount.increment();
-                    }
-                }
-
-                for (int i = 0; i < numWrites; i++) {
-                    if (i % 2 == 0) {
-                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) {
-                            stmt.setLong(1, currentId);
-                            stmt.executeUpdate();
-                            totalSqlCount.increment();
+                switch (this.currentScenario) {
+                    case "READ_ONLY": // 5R:0W
+                        for (int i=0; i<5; i++) {
+                            try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) {
+                                stmt.setLong(1, currentId);
+                                stmt.executeQuery();
+                                totalSqlCount.increment();
+                            }
                         }
-                    } else {
-                        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
-                            stmt.setLong(1, currentId);
-                            stmt.executeUpdate();
-                            totalSqlCount.increment();
-                        }
-                    }
+                        break;
+                    case "WRITE_HEAVY": // 2R:3W
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        break;
+                    case "READ_HEAVY": // 4R:1W
+                    default:
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        break;
                 }
                 conn.commit();
                 successTxCount.increment();
             } catch (SQLException ex) {
-                totalSqlCount.increment(); // Count the failed SQL
+                totalSqlCount.increment();
                 try { conn.rollback(); } catch (SQLException ignored) {}
                 throw ex;
             }
@@ -366,9 +359,20 @@ public class BenchService {
     }
 
     private void generateReport() {
+        long durationMillis = System.currentTimeMillis() - benchmarkStartTime;
+        double durationSeconds = durationMillis / 1000.0;
+        if (durationSeconds == 0) durationSeconds = 1; // Avoid division by zero
+
         long s = successTxCount.sum();
         long f = failedTxCount.sum();
-        String reportJson = String.format("{\"total\": %d, \"success\": %d, \"fail\": %d}", s + f, s, f);
+        long totalSql = totalSqlCount.sum();
+
+        double avgTps = s / durationSeconds;
+        double avgQps = totalSql / durationSeconds;
+
+        String reportJson = String.format(
+            "{\"total\": %d, \"success\": %d, \"fail\": %d, \"avgTps\": %.2f, \"avgQps\": %.2f}",
+            s + f, s, f, avgTps, avgQps);
         sendLog("SUMMARY", reportJson);
     }
 }
