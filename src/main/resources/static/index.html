@@ -170,6 +170,22 @@
                                 <input type="number" class="form-control form-control-sm" id="sampleRate" value="100" min="1">
                             </div>
                         </div>
+                        <div class="mt-2">
+                            <label for="write-ratio" class="form-label small">读写比例 (共10个SQL)</label>
+                            <select id="write-ratio" class="form-select form-select-sm">
+                                <option value="0">(100% 读, 0% 写)</option>
+                                <option value="1">(90% 读, 10% 写)</option>
+                                <option value="2" selected>(80% 读, 20% 写)</option>
+                                <option value="3">(70% 读, 30% 写)</option>
+                                <option value="4">(60% 读, 40% 写)</option>
+                                <option value="5">(50% 读, 50% 写)</option>
+                                <option value="6">(40% 读, 60% 写)</option>
+                                <option value="7">(30% 读, 70% 写)</option>
+                                <option value="8">(20% 读, 80% 写)</option>
+                                <option value="9">(10% 读, 90% 写)</option>
+                                <option value="10">(0% 读, 100% 写)</option>
+                            </select>
+                        </div>
                         <div class="d-grid gap-2 mt-3">
                             <button id="start-btn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始压测</button>
                             <button id="stop-btn" class="btn btn-danger" disabled><i class="bi bi-stop-fill"></i> 停止压测</button>
@@ -259,6 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Control & Display
     const intervalInput = document.getElementById('interval');
     const sampleRateInput = document.getElementById('sampleRate');
+    const writeRatioSelect = document.getElementById('write-ratio');
     const statusIndicator = document.getElementById('status-indicator');
     const qpsDisplay = document.getElementById('qps-display');
     const tpsDisplay = document.getElementById('tps-display');
@@ -417,6 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const params = {
             interval: intervalInput.value,
             sampleRate: sampleRateInput.value,
+            writeRatio: writeRatioSelect.value,
             ip: ipInput.value,
             port: portInput.value,
             dbName: dbNameInput.value,

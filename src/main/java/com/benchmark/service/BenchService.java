@@ -26,7 +26,19 @@ import java.util.concurrent.atomic.AtomicLong;
 
 
 
+
+
+
+
 public class BenchService {
+
+
+
+
+
+
+
+
 
 
 
@@ -42,7 +54,19 @@ public class BenchService {
 
 
 
+
+
+
+
+
+
+
+
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+
+
+
+
 
 
 
@@ -50,7 +74,15 @@ public class BenchService {
 
 
 
+
+
+
+
     private DruidDataSource dataSource;
+
+
+
+
 
 
 
@@ -58,7 +90,19 @@ public class BenchService {
 
 
 
-    private int currentWriteRatio; // 新增：记录当前写比例
+
+
+
+
+    private int currentWriteRatio;
+
+
+
+
+
+
+
+
 
 
 
@@ -70,19 +114,59 @@ public class BenchService {
 
 
 
-    private final AtomicLong successCount = new AtomicLong(0);
 
 
 
-    private final AtomicLong failCount = new AtomicLong(0);
+
+    // 重命名/新增计数器以提高精确度
 
 
 
-    private long lastSuccessCount = 0;
 
 
 
-    private long lastFailCount = 0;
+
+    private final AtomicLong successTxCount = new AtomicLong(0);
+
+
+
+
+
+
+
+    private final AtomicLong failedTxCount = new AtomicLong(0);
+
+
+
+
+
+
+
+    private final AtomicLong totalSqlCount = new AtomicLong(0);
+
+
+
+
+
+
+
+    private long lastSuccessTxCount = 0;
+
+
+
+
+
+
+
+    private long lastFailedTxCount = 0;
+
+
+
+
+
+
+
+    private long lastTotalSqlCount = 0;
 
 
 
