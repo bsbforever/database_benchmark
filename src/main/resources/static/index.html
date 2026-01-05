@@ -170,6 +170,12 @@
                                 <input type="number" class="form-control form-control-sm" id="sampleRate" value="100" min="1">
                             </div>
                         </div>
+                        <div class="row g-2 mt-1">
+                            <div class="col-12">
+                                <label class="form-label small">并发线程数</label>
+                                <input type="number" class="form-control form-control-sm" id="thread-count" value="16" min="1">
+                            </div>
+                        </div>
                         <div class="mt-2">
                             <label for="write-ratio" class="form-label small">读写比例 (共10个SQL)</label>
                             <select id="write-ratio" class="form-select form-select-sm">
@@ -276,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const intervalInput = document.getElementById('interval');
     const sampleRateInput = document.getElementById('sampleRate');
     const writeRatioSelect = document.getElementById('write-ratio');
+    const threadCountInput = document.getElementById('thread-count');
     const statusIndicator = document.getElementById('status-indicator');
     const qpsDisplay = document.getElementById('qps-display');
     const tpsDisplay = document.getElementById('tps-display');
@@ -435,6 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
             interval: intervalInput.value,
             sampleRate: sampleRateInput.value,
             writeRatio: writeRatioSelect.value,
+            threadCount: threadCountInput.value,
             ip: ipInput.value,
             port: portInput.value,
             dbName: dbNameInput.value,
