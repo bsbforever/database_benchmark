@@ -1,0 +1,9 @@
+{
+  "本地开发库" : {
+    "ip" : "127.0.0.1",
+    "port" : "2881",
+    "dbName" : "test",
+    "username" : "root@test",
+    "password" : "ROot..123"
+  }
+}

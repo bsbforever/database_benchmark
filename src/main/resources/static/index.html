@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据库压测平台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root {
+            --accent-color: #00bfff;
+            --accent-color-rgb: 0, 191, 255;
+            --bg-color: #1a1a1a;
+            --card-bg-color: #252526;
+            --border-color: #3a3a3a;
+            --text-color: #f0f0f0;
+            --text-muted-color: #888;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+
+        .card {
+            background-color: var(--card-bg-color);
+            border: 1px solid var(--border-color);
+            height: 100%;
+        }
+        .card-header {
+            border-bottom: 1px solid var(--border-color);
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-output {
+            background-color: rgba(0,0,0,0.2);
+            height: calc(100vh - 200px);
+            overflow-y: scroll;
+            font-size: 0.8em;
+            white-space: pre-wrap;
+            border-radius: 0 0 .375rem .375rem;
+            padding: 1rem;
+        }
+
+        .metric-display {
+            text-align: center;
+        }
+        .metric-display .value {
+            font-size: 2.5rem;
+            font-weight: 500;
+            color: var(--accent-color);
+            line-height: 1;
+            white-space: nowrap;
+        }
+        .metric-display .value.small {
+            font-size: 1.75rem;
+        }
+
+        .metric-display .label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            color: var(--text-muted-color);
+        }
+
+        .btn-primary {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+        .btn-primary:hover {
+            background-color: rgba(var(--accent-color-rgb), 0.8);
+            border-color: rgba(var(--accent-color-rgb), 0.8);
+        }
+        .form-select, .form-control {
+            background-color: #333;
+            border-color: var(--border-color);
+        }
+        .form-select:focus, .form-control:focus {
+            background-color: #333;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 .25rem rgba(var(--accent-color-rgb), 0.25);
+        }
+
+        .status-badge {
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+<div class="container-fluid px-4 py-3">
+    <header class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-speedometer2 me-2" style="color: var(--accent-color);"></i>数据库压测平台</h3>
+        <span id="status-indicator" class="badge fs-6 rounded-pill text-bg-secondary status-badge">空闲</span>
+    </header>
+
+    <div class="row g-4">
+        <!-- Left Column: Config & Control -->
+        <div class="col-lg-3">
+            <div class="d-flex flex-column gap-4">
+                 <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-sliders me-1"></i> 控制面板
+                    </div>
+                    <div class="card-body">
+                         <div class="mb-3">
+                            <label for="connection-select" class="form-label small">选择配置</label>
+                            <select id="connection-select" class="form-select form-select-sm"></select>
+                        </div>
+                        <div class="d-grid">
+                            <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-config" aria-expanded="false" aria-controls="collapse-config">
+                                <i class="bi bi-pencil-square"></i> 显示/编辑连接详情
+                            </button>
+                        </div>
+                        <div class="collapse" id="collapse-config">
+                            <hr>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">别名</span>
+                                <input type="text" class="form-control" id="alias" placeholder="为新连接起个名字">
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">类型</span>
+                                <select id="dbType" class="form-select">
+                                    <option value="MySQL" selected>MySQL</option>
+                                    <option value="DB2">DB2</option>
+                                </select>
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">地址</span>
+                                <input type="text" class="form-control" id="ip" placeholder="IP / Host">
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">端口</span>
+                                <input type="text" class="form-control" id="port" placeholder="Port">
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">数据库</span>
+                                <input type="text" class="form-control" id="dbName" placeholder="Database Name">
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">用户名</span>
+                                <input type="text" class="form-control" id="username" placeholder="Username">
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text" style="width: 80px;">密码</span>
+                                <input type="password" class="form-control" id="password" placeholder="Password">
+                            </div>
+                            <div class="btn-group w-100 mt-2">
+                                <button id="test-connection-btn" class="btn btn-sm btn-outline-secondary">测试</button>
+                                <button id="save-connection-btn" class="btn btn-sm btn-outline-primary">保存</button>
+                            </div>
+                             <div class="d-grid mt-2">
+                                <button id="delete-connection-btn" class="btn btn-sm btn-outline-danger">删除此配置</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                     <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small">压测频率 (ms)</label>
+                                <input type="number" class="form-control form-control-sm" id="interval" value="10" min="0">
+                            </div>
+                             <div class="col-6">
+                                <label class="form-label small">日志采样率</label>
+                                <input type="number" class="form-control form-control-sm" id="sampleRate" value="100" min="1">
+                            </div>
+                        </div>
+                        <div class="d-grid gap-2 mt-3">
+                            <button id="start-btn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始压测</button>
+                            <button id="stop-btn" class="btn btn-danger" disabled><i class="bi bi-stop-fill"></i> 停止压测</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Column: Logs -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-terminal me-1"></i> 实时日志
+                    <div class="form-check form-switch m-0">
+                        <input class="form-check-input" type="checkbox" id="log-toggle" checked>
+                        <label class="form-check-label small" for="log-toggle">显示</label>
+                    </div>
+                </div>
+                <div id="log-output" class="log-output"></div>
+            </div>
+        </div>
+
+        <!-- Right Column: Metrics -->
+        <div class="col-lg-3">
+             <div class="d-flex flex-column gap-4">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-graph-up me-1"></i> 实时数据</div>
+                    <div class="card-body">
+                        <div class="metric-display mb-4">
+                            <div class="label">QPS</div>
+                            <div id="qps-display" class="value">0</div>
+                        </div>
+                        <div class="metric-display">
+                            <div class="label">TPS</div>
+                            <div id="tps-display" class="value">0</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                     <div class="card-header"><i class="bi bi-clipboard2-data me-1"></i> 总结报告</div>
+                     <div class="card-body">
+                        <div class="metric-display mb-2">
+                             <div class="label">总事务</div>
+                            <div id="summary-total" class="value small">0</div>
+                        </div>
+                         <div class="metric-display mb-2">
+                            <div class="label text-success">成功</div>
+                            <div id="summary-success" class="value small text-success">0</div>
+                        </div>
+                        <div class="metric-display mb-2">
+                            <div class="label text-danger">失败</div>
+                            <div id="summary-fail" class="value small text-danger">0</div>
+                        </div>
+                        <div class="metric-display">
+                            <div class="label text-info">成功率</div>
+                            <div id="summary-rate" class="value small text-info">0%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Same JS logic as before, just re-pasting for completeness in the new structure
+document.addEventListener('DOMContentLoaded', () => {
+    // Form Inputs
+    const connectionSelect = document.getElementById('connection-select');
+    const aliasInput = document.getElementById('alias');
+    const ipInput = document.getElementById('ip');
+    const portInput = document.getElementById('port');
+    const dbNameInput = document.getElementById('dbName');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const dbTypeSelect = document.getElementById('dbType');
+    
+    // Buttons
+    const saveConnectionBtn = document.getElementById('save-connection-btn');
+    const testConnectionBtn = document.getElementById('test-connection-btn');
+    const deleteConnectionBtn = document.getElementById('delete-connection-btn');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+
+    // Control & Display
+    const intervalInput = document.getElementById('interval');
+    const sampleRateInput = document.getElementById('sampleRate');
+    const statusIndicator = document.getElementById('status-indicator');
+    const qpsDisplay = document.getElementById('qps-display');
+    const tpsDisplay = document.getElementById('tps-display');
+    const logToggle = document.getElementById('log-toggle');
+    const logOutput = document.getElementById('log-output');
+
+    // Summary
+    const summaryTotal = document.getElementById('summary-total');
+    const summarySuccess = document.getElementById('summary-success');
+    const summaryFail = document.getElementById('summary-fail');
+    const summaryRate = document.getElementById('summary-rate');
+
+    let sseClient = null;
+    let savedConnections = {};
+
+    function populateForm(alias, info) {
+        aliasInput.value = alias;
+        dbTypeSelect.value = info.dbType || 'MySQL';
+        ipInput.value = info.ip || '';
+        portInput.value = info.port || '';
+        dbNameInput.value = info.dbName || '';
+        usernameInput.value = info.username || '';
+        passwordInput.value = info.password || '';
+    }
+
+    function clearForm() {
+        populateForm('', {});
+        aliasInput.focus();
+    }
+    
+    async function loadConnections() {
+        try {
+            const response = await fetch('/api/config/connections');
+            if (!response.ok) throw new Error('Failed to load connections');
+            savedConnections = await response.json();
+            
+            connectionSelect.innerHTML = '<option value="">--- 新建连接 ---</option>';
+            let firstAlias = null;
+
+            for (const alias in savedConnections) {
+                if(!firstAlias) firstAlias = alias;
+                const option = document.createElement('option');
+                option.value = alias;
+                option.textContent = alias;
+                connectionSelect.appendChild(option);
+            }
+
+            if (firstAlias) {
+                connectionSelect.value = firstAlias;
+                populateForm(firstAlias, savedConnections[firstAlias]);
+            }
+
+        } catch (error) {
+            console.error('Error loading connections:', error);
+        }
+    }
+
+    connectionSelect.addEventListener('change', () => {
+        const selectedAlias = connectionSelect.value;
+        if (selectedAlias && savedConnections[selectedAlias]) {
+            populateForm(selectedAlias, savedConnections[selectedAlias]);
+        } else {
+            clearForm();
+        }
+    });
+
+    async function saveConnection() {
+        const alias = aliasInput.value.trim();
+        if (!alias) {
+            alert('请输入连接别名');
+            return;
+        }
+        const connectionInfo = {
+            ip: ipInput.value,
+            port: portInput.value,
+            dbName: dbNameInput.value,
+            username: usernameInput.value,
+            password: passwordInput.value,
+            dbType: dbTypeSelect.value,
+        };
+
+        try {
+            const response = await fetch(`/api/config/connections?alias=${encodeURIComponent(alias)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(connectionInfo)
+            });
+            if (!response.ok) throw new Error('保存失败');
+            alert('保存成功');
+            await loadConnections();
+            connectionSelect.value = alias;
+        } catch (error) {
+            alert(error.message);
+        }
+    }
+
+    async function deleteConnection() {
+        const alias = connectionSelect.value;
+        if (!alias) {
+            alert('请先从下拉框中选择一个要删除的连接。');
+            return;
+        }
+        if (!confirm(`确定要删除连接 "${alias}"吗?`)) return;
+
+        try {
+            const response = await fetch(`/api/config/connections?alias=${encodeURIComponent(alias)}`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) throw new Error('删除失败');
+            alert('删除成功');
+            await loadConnections();
+            clearForm();
+        } catch (error) {
+            alert(error.message);
+        }
+    }
+
+    async function testConnection() {
+        const connectionInfo = {
+            ip: ipInput.value,
+            port: portInput.value,
+            dbName: dbNameInput.value,
+            username: usernameInput.value,
+            password: passwordInput.value,
+            dbType: dbTypeSelect.value,
+        };
+        
+        const originalText = testConnectionBtn.innerHTML;
+        testConnectionBtn.disabled = true;
+        testConnectionBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+        try {
+            const response = await fetch('/api/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(connectionInfo)
+            });
+            const resultText = await response.text();
+            alert(resultText);
+        } catch (error) {
+            alert('测试请求失败: ' + error.message);
+        } finally {
+            testConnectionBtn.disabled = false;
+            testConnectionBtn.innerHTML = originalText;
+        }
+    }
+    
+    function startBenchmark() {
+        // Reset metrics on start
+        qpsDisplay.textContent = '0';
+        tpsDisplay.textContent = '0';
+        summaryTotal.textContent = '0';
+        summarySuccess.textContent = '0';
+        summaryFail.textContent = '0';
+        summaryRate.textContent = '0%';
+
+        const params = {
+            interval: intervalInput.value,
+            sampleRate: sampleRateInput.value,
+            ip: ipInput.value,
+            port: portInput.value,
+            dbName: dbNameInput.value,
+            username: usernameInput.value,
+            password: passwordInput.value,
+            dbType: dbTypeSelect.value,
+        };
+
+        if (!params.ip || !params.port || !params.dbName) {
+            alert('请先选择或配置一个有效的数据库连接。');
+            return;
+        }
+
+        fetch(`/api/start?${new URLSearchParams(params).toString()}`)
+            .then(response => {
+                if (!response.ok) throw new Error('启动压测失败');
+                updateUiState(true);
+                logOutput.innerHTML = ''; // Clear previous logs
+                connectSse();
+            })
+            .catch(error => {
+                alert(error.message);
+            });
+    }
+
+    function stopBenchmark() {
+        fetch('/api/stop')
+            .then(response => {
+                if (!response.ok) throw new Error('停止压测失败');
+                updateUiState(false);
+            })
+            .catch(error => {
+                alert(error.message);
+            });
+    }
+    
+    function connectSse() {
+        if (sseClient) sseClient.close();
+        sseClient = new EventSource('/api/stream');
+
+        sseClient.addEventListener('STATS', event => {
+            const data = JSON.parse(event.data);
+            qpsDisplay.textContent = data.qps.toFixed(2);
+            tpsDisplay.textContent = data.tps.toFixed(2);
+        });
+
+        sseClient.addEventListener('LOG', event => {
+            if (logToggle.checked) {
+                logOutput.innerHTML += event.data;
+                logOutput.scrollTop = logOutput.scrollHeight;
+            }
+        });
+
+        sseClient.addEventListener('SUMMARY', event => {
+            const data = JSON.parse(event.data);
+            summaryTotal.textContent = data.total;
+            summarySuccess.textContent = data.success;
+            summaryFail.textContent = data.fail;
+            const rate = data.total > 0 ? (data.success / data.total * 100) : 100;
+            summaryRate.textContent = rate.toFixed(2) + '%';
+        });
+
+        sseClient.onerror = () => {
+            sseClient.close();
+            if(statusIndicator.textContent === '运行中') {
+                 updateUiState(false);
+            }
+        };
+    }
+    
+    function updateUiState(isRunning) {
+        const configElements = [connectionSelect, saveConnectionBtn, deleteConnectionBtn, testConnectionBtn, document.getElementById('collapse-config')];
+        configElements.forEach(el => el.disabled = isRunning);
+        
+        startBtn.disabled = isRunning;
+        stopBtn.disabled = !isRunning;
+
+        if (isRunning) {
+            statusIndicator.textContent = '运行中';
+            statusIndicator.classList.replace('text-bg-secondary', 'text-bg-success');
+        } else {
+            statusIndicator.textContent = '空闲';
+            statusIndicator.classList.replace('text-bg-success', 'text-bg-secondary');
+            qpsDisplay.textContent = '0';
+            tpsDisplay.textContent = '0';
+        }
+    }
+
+    // --- Initial Setup ---
+    testConnectionBtn.onclick = testConnection;
+    saveConnectionBtn.onclick = saveConnection;
+    deleteConnectionBtn.onclick = deleteConnection;
+    startBtn.onclick = startBenchmark;
+    stopBtn.onclick = stopBenchmark;
+    
+    loadConnections();
+    updateUiState(false);
+});
+</script>
+</body>
+</html>
