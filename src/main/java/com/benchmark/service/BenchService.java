@@ -362,29 +362,31 @@ public class BenchService {
 
                 }
 
-                try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) {
+                                try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) {
 
-                    stmt.setLong(1, currentId);
+                                    stmt.setLong(1, currentId);
 
-                    stmt.executeQuery();
+                                    stmt.executeQuery();
 
-                }
+                                }
 
-                try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_test SET create_time = " + nowFunction + " WHERE id = ?")) {
+                                // The original UPDATE statement is removed and replaced by another SELECT to achieve an 8:2 read/write ratio.
 
-                    stmt.setLong(1, currentId);
+                                try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) {
 
-                    stmt.executeUpdate();
+                                    stmt.setLong(1, currentId);
 
-                }
+                                    stmt.executeQuery();
 
-                try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_test WHERE id = ?")) {
+                                }
 
-                    stmt.setLong(1, currentId);
+                                try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_test WHERE id = ?")) {
 
-                    stmt.executeQuery();
+                                    stmt.setLong(1, currentId);
 
-                }
+                                    stmt.executeQuery();
+
+                                }
 
                 conn.commit();
 
