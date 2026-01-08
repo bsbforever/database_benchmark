@@ -13,16 +13,13 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map; // 新增
+import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.concurrent.ConcurrentHashMap; // 新增
 
 @Service
 public class BenchService {
-
-    private static final int SQLS_PER_TX = 10; // 每个事务10个SQL
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -30,11 +27,9 @@ public class BenchService {
     private String currentDbType;
     private String currentScenario;
 
-    // Concurrency
     private ExecutorService benchmarkExecutor;
     private long benchmarkStartTime;
 
-    // Performance Counters
     private final LongAdder successTxCount = new LongAdder();
     private final LongAdder failedTxCount = new LongAdder();
     private final LongAdder totalSqlCount = new LongAdder();
@@ -44,7 +39,6 @@ public class BenchService {
 
     private ScheduledExecutorService statsScheduler;
 
-    // Default configs from application.properties
     @Value("${ob.target.ip}") private String defaultIp;
     @Value("${ob.target.port}") private String defaultPort;
     @Value("${ob.target.dbname}") private String defaultDbName;
@@ -65,7 +59,7 @@ public class BenchService {
         int actualSampleRate = (sampleRate != null && sampleRate > 0) ? sampleRate : defaultSampleRate;
         int actualThreadCount = (threadCount != null && threadCount > 0) ? threadCount : 16;
         this.currentDbType = StringUtils.hasText(dbType) ? dbType : "MySQL";
-        this.currentScenario = StringUtils.hasText(scenario) ? scenario : "READ_HEAVY";
+        this.currentScenario = StringUtils.hasText(scenario) ? scenario : "WEB_APP";
 
         String targetIp = StringUtils.hasText(ip) ? ip : defaultIp;
         String targetPort = StringUtils.hasText(port) ? port : defaultPort;
@@ -90,7 +84,7 @@ public class BenchService {
                 initSchema();
 
                 sendLog("LOG", "✅ 连接成功，表结构已就绪。开始压测...");
-                sendLog("LOG", String.format("🚀 目标: %s:%s | 场景: %s | 并发数: %d | 频率: %dms",
+                sendLog("LOG", String.format("🚀 目标: %s:%s | 负载模型: %s | 并发数: %d | 频率: %dms",
                         targetIp, targetPort, this.currentScenario, actualThreadCount, actualInterval));
 
                 startMonitor();
@@ -188,83 +182,29 @@ public class BenchService {
         long start = System.currentTimeMillis();
         String status = "OK", color = "#4caf50", errorMsg = "";
         boolean isSuccess = true;
-        long currentId = ThreadLocalRandom.current().nextLong(defaultDataRange);
-        if (currentId == 0) currentId = 1;
-
+        
         try (Connection conn = dataSource.getConnection()) {
-            conn.setAutoCommit(false);
-            try {
-                switch (this.currentScenario) {
-                    case "READ_ONLY": // 10R, 0W on products
-                        for (int i = 0; i < 10; i++) {
-                            try (PreparedStatement stmt = conn.prepareStatement("SELECT name, stock FROM bench_products WHERE id = ?")) {
-                                stmt.setLong(1, currentId);
-                                stmt.executeQuery();
-                                totalSqlCount.increment();
-                            }
-                        }
-                        break;
-                    case "RW_2_8": // 2R, 8W on orders and products
-                        // Read product and user
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT stock FROM bench_products WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        // Write orders and update stock
-                        for (int i=0; i<4; i++) {
-                            try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO bench_orders (user_id, product_id, order_time) VALUES (?, ?, CURRENT_TIMESTAMP)")) {
-                                stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment();
-                            }
-                            try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_products SET stock = stock - 1 WHERE id = ?")) {
-                                stmt.setLong(1, currentId);
-                                stmt.executeUpdate();
-                                totalSqlCount.increment();
-                            }
-                        }
-                        break;
-                    case "RW_5_5": // 5R, 5W mixed
-                        // 5 reads
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_users WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_products WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_orders WHERE user_id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT name FROM bench_products WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        // 5 writes
-                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_users SET name = 'user_' || ? WHERE id = ?")) { stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_products SET stock = stock + 1 WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO bench_orders (user_id, product_id, order_time) VALUES (?, ?, CURRENT_TIMESTAMP)")) { stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_products SET stock = stock - 1 WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_users SET name = 'user_' || ? WHERE id = ?")) { stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        break;
-                    case "RW_8_2": // 8R, 2W on users
-                    default:
-                        for (int i = 0; i < 4; i++) {
-                            try (PreparedStatement stmt = conn.prepareStatement("SELECT name, extra_info FROM bench_users WHERE id = ?")) {
-                                stmt.setLong(1, currentId);
-                                stmt.executeQuery();
-                                totalSqlCount.increment();
-                            }
-                            try (PreparedStatement stmt = conn.prepareStatement("SELECT id, name FROM bench_users WHERE id = ?")) {
-                                stmt.setLong(1, currentId);
-                                stmt.executeQuery();
-                                totalSqlCount.increment();
-                            }
-                        }
-                        for (int i = 0; i < 2; i++) {
-                             try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_users SET name = 'user_' || ? WHERE id = ?")) {
-                                stmt.setLong(1, currentId);
-                                stmt.setLong(2, currentId);
-                                stmt.executeUpdate();
-                                totalSqlCount.increment();
-                            }
-                        }
-                        break;
-                }
-                conn.commit();
-                successTxCount.increment();
-            } catch (SQLException ex) {
-                totalSqlCount.increment();
-                try { conn.rollback(); } catch (SQLException ignored) {}
-                throw ex;
+            // Select and execute a task based on the workload model (scenario)
+            double rand = ThreadLocalRandom.current().nextDouble();
+            switch (this.currentScenario) {
+                case "ANALYTICS": // 90% Read
+                    if (rand < 0.5) executeHeavyReadTask(conn);
+                    else if (rand < 0.9) executeLightReadTask(conn);
+                    else executeLightWriteTask(conn);
+                    break;
+                case "SYNC": // 50% Read
+                    if (rand < 0.5) executeHeavyWriteTask(conn);
+                    else executeLightWriteTask(conn);
+                    break;
+                case "WEB_APP": // 70% Read
+                default:
+                    if (rand < 0.6) executeLightReadTask(conn);
+                    else if (rand < 0.7) executeHeavyReadTask(conn);
+                    else if (rand < 0.9) executeLightWriteTask(conn);
+                    else executeHeavyWriteTask(conn);
+                    break;
             }
+            successTxCount.increment();
         } catch (Exception e) {
             isSuccess = false;
             failedTxCount.increment();
@@ -283,6 +223,112 @@ public class BenchService {
             sendLog("LOG", logHtml);
         }
     }
+
+    // --- Atomic Transaction Tasks ---
+
+    private void executeLightReadTask(Connection conn) throws SQLException { // 2R
+        long id = ThreadLocalRandom.current().nextLong(defaultDataRange);
+        if (id == 0) id = 1;
+        try (PreparedStatement stmt1 = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?");
+             PreparedStatement stmt2 = conn.prepareStatement("SELECT name FROM bench_products WHERE id = ?")) {
+            stmt1.setLong(1, id);
+            stmt1.executeQuery();
+            totalSqlCount.increment();
+            
+            stmt2.setLong(1, id);
+            stmt2.executeQuery();
+            totalSqlCount.increment();
+        }
+    }
+
+    private void executeHeavyReadTask(Connection conn) throws SQLException { // 8R
+        long id = ThreadLocalRandom.current().nextLong(defaultDataRange);
+        if (id == 0) id = 1;
+        for (int i=0; i<8; i++) {
+             try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_products WHERE id = ?")) {
+                stmt.setLong(1, id);
+                stmt.executeQuery();
+                totalSqlCount.increment();
+            }
+        }
+    }
+
+    private void executeLightWriteTask(Connection conn) throws SQLException { // 1R, 2W
+        long id = ThreadLocalRandom.current().nextLong(defaultDataRange);
+        if (id == 0) id = 1;
+        String updateSql = "UPDATE bench_users SET name = 'user_' || ? WHERE id = ?";
+        if ("MySQL".equals(currentDbType)) {
+            updateSql = "UPDATE bench_users SET name = CONCAT('user_', ?) WHERE id = ?";
+        }
+        
+        conn.setAutoCommit(false);
+        try (PreparedStatement stmt1 = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?");
+             PreparedStatement stmt2 = conn.prepareStatement(updateSql);
+             PreparedStatement stmt3 = conn.prepareStatement(updateSql)) {
+            
+            stmt1.setLong(1, id);
+            stmt1.executeQuery();
+            totalSqlCount.increment();
+
+            stmt2.setLong(1, id);
+            stmt2.setLong(2, id);
+            stmt2.executeUpdate();
+            totalSqlCount.increment();
+
+            stmt3.setLong(1, id);
+            stmt3.setLong(2, id);
+            stmt3.executeUpdate();
+            totalSqlCount.increment();
+            conn.commit();
+        } catch(SQLException e) {
+            conn.rollback();
+            totalSqlCount.increment(); // count the failed one
+            throw e;
+        } finally {
+            conn.setAutoCommit(true);
+        }
+    }
+    
+    private void executeHeavyWriteTask(Connection conn) throws SQLException { // 2R, 4W
+        long id = ThreadLocalRandom.current().nextLong(defaultDataRange);
+        if (id == 0) id = 1;
+        String insertSql = "INSERT INTO bench_orders (user_id, product_id, order_time) VALUES (?, ?, CURRENT_TIMESTAMP)";
+        String updateSql = "UPDATE bench_products SET stock = stock - 1 WHERE id = ?";
+
+        conn.setAutoCommit(false);
+        try (PreparedStatement stmt1 = conn.prepareStatement("SELECT stock FROM bench_products WHERE id = ?");
+             PreparedStatement stmt2 = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?")) {
+            stmt1.setLong(1, id);
+            stmt1.executeQuery();
+            totalSqlCount.increment();
+
+            stmt2.setLong(1, id);
+            stmt2.executeQuery();
+            totalSqlCount.increment();
+
+            for(int i=0; i<2; i++) {
+                try(PreparedStatement stmt3 = conn.prepareStatement(insertSql)) {
+                    stmt3.setLong(1, id);
+                    stmt3.setLong(2, id);
+                    stmt3.executeUpdate();
+                    totalSqlCount.increment();
+                }
+                try(PreparedStatement stmt4 = conn.prepareStatement(updateSql)) {
+                    stmt4.setLong(1, id);
+                    stmt4.executeUpdate();
+                    totalSqlCount.increment();
+                }
+            }
+            conn.commit();
+        } catch(SQLException e) {
+            conn.rollback();
+            totalSqlCount.increment(); // count the failed one
+            throw e;
+        } finally {
+            conn.setAutoCommit(true);
+        }
+    }
+
 
     private void sendLog(String eventName, String data) {
         for (SseEmitter emitter : emitters) {
@@ -367,7 +413,6 @@ public class BenchService {
                 String ddl = entry.getValue();
 
                 boolean tableExists = false;
-                // For DB2, table names are typically uppercase in catalog
                 String catalogTableName = "DB2".equals(currentDbType) ? tableName.toUpperCase() : tableName;
                 try (var rs = conn.getMetaData().getTables(null, null, catalogTableName, null)) {
                     if (rs.next()) {
@@ -391,7 +436,7 @@ public class BenchService {
     private void generateReport() {
         long durationMillis = System.currentTimeMillis() - benchmarkStartTime;
         double durationSeconds = durationMillis / 1000.0;
-        if (durationSeconds == 0) durationSeconds = 1; // Avoid division by zero
+        if (durationSeconds == 0) durationSeconds = 1;
 
         long s = successTxCount.sum();
         long f = failedTxCount.sum();
