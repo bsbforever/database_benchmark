@@ -5,13 +5,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
+import java.util.LinkedHashMap;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -26,6 +25,7 @@ public class BenchService {
     private DruidDataSource dataSource;
     private String currentDbType;
     private String currentScenario;
+    private String[] customSqls;
 
     private ExecutorService benchmarkExecutor;
     private long benchmarkStartTime;
@@ -50,7 +50,7 @@ public class BenchService {
     @Value("${ob.target.log-sample-rate:10}") private int defaultSampleRate;
     @Value("${ob.target.data-range:100000}") private int defaultDataRange;
 
-    public void startBenchmark(Long intervalMs, Integer sampleRate, String scenario, Integer threadCount,
+    public void startBenchmark(Long intervalMs, Integer sampleRate, String scenario, Integer threadCount, String customSql,
                                String ip, String port, String dbName, String user, String pass, String dbType) {
         if (isRunning.getAndSet(true)) return;
         this.benchmarkStartTime = System.currentTimeMillis();
@@ -60,6 +60,14 @@ public class BenchService {
         int actualThreadCount = (threadCount != null && threadCount > 0) ? threadCount : 16;
         this.currentDbType = StringUtils.hasText(dbType) ? dbType : "MySQL";
         this.currentScenario = StringUtils.hasText(scenario) ? scenario : "WEB_APP";
+        
+        if ("CUSTOM_SQL".equals(this.currentScenario)) {
+            if (StringUtils.hasText(customSql)) {
+                this.customSqls = customSql.trim().split(";");
+            } else {
+                this.customSqls = new String[0];
+            }
+        }
 
         String targetIp = StringUtils.hasText(ip) ? ip : defaultIp;
         String targetPort = StringUtils.hasText(port) ? port : defaultPort;
@@ -184,25 +192,10 @@ public class BenchService {
         boolean isSuccess = true;
         
         try (Connection conn = dataSource.getConnection()) {
-            // Select and execute a task based on the workload model (scenario)
-            double rand = ThreadLocalRandom.current().nextDouble();
-            switch (this.currentScenario) {
-                case "ANALYTICS": // 90% Read
-                    if (rand < 0.5) executeHeavyReadTask(conn);
-                    else if (rand < 0.9) executeLightReadTask(conn);
-                    else executeLightWriteTask(conn);
-                    break;
-                case "SYNC": // 50% Read
-                    if (rand < 0.5) executeHeavyWriteTask(conn);
-                    else executeLightWriteTask(conn);
-                    break;
-                case "WEB_APP": // 70% Read
-                default:
-                    if (rand < 0.6) executeLightReadTask(conn);
-                    else if (rand < 0.7) executeHeavyReadTask(conn);
-                    else if (rand < 0.9) executeLightWriteTask(conn);
-                    else executeHeavyWriteTask(conn);
-                    break;
+            if ("CUSTOM_SQL".equals(this.currentScenario)) {
+                executeCustomSql(conn);
+            } else {
+                executeMixedLoad(conn);
             }
             successTxCount.increment();
         } catch (Exception e) {
@@ -224,8 +217,51 @@ public class BenchService {
         }
     }
 
-    // --- Atomic Transaction Tasks ---
+    private void executeCustomSql(Connection conn) throws SQLException {
+        if (this.customSqls == null || this.customSqls.length == 0) {
+            return;
+        }
+        conn.setAutoCommit(false);
+        try (Statement stmt = conn.createStatement()) {
+            for (String sql : this.customSqls) {
+                if (StringUtils.hasText(sql)) {
+                    stmt.execute(sql.trim());
+                    totalSqlCount.increment();
+                }
+            }
+            conn.commit();
+        } catch (SQLException e) {
+            conn.rollback();
+            totalSqlCount.increment(); // count the failed one
+            throw e;
+        } finally {
+            conn.setAutoCommit(true);
+        }
+    }
 
+    private void executeMixedLoad(Connection conn) throws Exception {
+        double rand = ThreadLocalRandom.current().nextDouble();
+        switch (this.currentScenario) {
+            case "ANALYTICS": // 90% Read
+                if (rand < 0.5) executeHeavyReadTask(conn);
+                else if (rand < 0.9) executeLightReadTask(conn);
+                else executeLightWriteTask(conn);
+                break;
+            case "SYNC": // 50% Read
+                if (rand < 0.5) executeHeavyWriteTask(conn);
+                else executeLightWriteTask(conn);
+                break;
+            case "WEB_APP": // 70% Read
+            default:
+                if (rand < 0.6) executeLightReadTask(conn);
+                else if (rand < 0.7) executeHeavyReadTask(conn);
+                else if (rand < 0.9) executeLightWriteTask(conn);
+                else executeHeavyWriteTask(conn);
+                break;
+        }
+    }
+
+    // --- Atomic Transaction Tasks ---
     private void executeLightReadTask(Connection conn) throws SQLException { // 2R
         long id = ThreadLocalRandom.current().nextLong(defaultDataRange);
         if (id == 0) id = 1;
@@ -306,7 +342,7 @@ public class BenchService {
             stmt2.executeQuery();
             totalSqlCount.increment();
 
-            for(int i=0; i<2; i++) {
+            for(int i=0; i<2; i++) { // Two writes per loop, total 4 writes
                 try(PreparedStatement stmt3 = conn.prepareStatement(insertSql)) {
                     stmt3.setLong(1, id);
                     stmt3.setLong(2, id);

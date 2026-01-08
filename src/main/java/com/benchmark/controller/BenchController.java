@@ -15,18 +15,13 @@ public class BenchController {
     @Autowired
     private BenchService benchService;
 
-    /**
-     * 启动压测 (升级版：支持动态传递数据库连接参数)
-     */
     @GetMapping("/start")
     public String start(
-            // 压测参数
             @RequestParam(required = false) Long interval,
             @RequestParam(required = false) Integer sampleRate,
             @RequestParam(required = false) String scenario,
             @RequestParam(required = false) Integer threadCount,
-
-            // 数据库连接参数 (可选，不传则使用默认配置)
+            @RequestParam(required = false) String customSql,
             @RequestParam(required = false) String ip,
             @RequestParam(required = false) String port,
             @RequestParam(required = false) String dbName,
@@ -34,8 +29,7 @@ public class BenchController {
             @RequestParam(required = false) String password,
             @RequestParam(required = false) String dbType
     ) {
-        // 将参数传递给 Service 进行动态连接初始化
-        benchService.startBenchmark(interval, sampleRate, scenario, threadCount, ip, port, dbName, username, password, dbType);
+        benchService.startBenchmark(interval, sampleRate, scenario, threadCount, customSql, ip, port, dbName, username, password, dbType);
         return "Started with dynamic config";
     }
 
@@ -47,7 +41,7 @@ public class BenchController {
                 connectionParams.get("dbName"),
                 connectionParams.get("username"),
                 connectionParams.get("password"),
-                connectionParams.get("dbType") // 新增 dbType 参数
+                connectionParams.get("dbType")
         );
     }
 

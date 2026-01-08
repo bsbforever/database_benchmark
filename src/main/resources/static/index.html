@@ -182,12 +182,20 @@
                                 <option value="WEB_APP" selected>在线业务 (70%读, 30%写)</option>
                                 <option value="ANALYTICS">数据分析 (90%读, 10%写)</option>
                                 <option value="SYNC">数据同步 (50%读, 50%写)</option>
+                                <option value="CUSTOM_SQL">自定义SQL</option>
                             </select>
                         </div>
                         <div class="d-grid gap-2 mt-3">
                             <button id="start-btn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始压测</button>
                             <button id="stop-btn" class="btn btn-danger" disabled><i class="bi bi-stop-fill"></i> 停止压测</button>
                         </div>
+                    </div>
+                </div>
+
+                <div class="card" id="custom-sql-card" style="display: none;">
+                    <div class="card-header"><i class="bi bi-code-slash me-1"></i> 自定义SQL脚本</div>
+                    <div class="card-body">
+                        <textarea id="custom-sql-input" class="form-control" rows="8" placeholder="在此输入SQL脚本，以分号(;)分隔..."></textarea>
                     </div>
                 </div>
             </div>
@@ -290,6 +298,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const sampleRateInput = document.getElementById('sampleRate');
     const scenarioSelect = document.getElementById('scenario');
     const threadCountInput = document.getElementById('thread-count');
+    const customSqlCard = document.getElementById('custom-sql-card');
+    const customSqlInput = document.getElementById('custom-sql-input');
     const statusIndicator = document.getElementById('status-indicator');
     const qpsDisplay = document.getElementById('qps-display');
     const tpsDisplay = document.getElementById('tps-display');
@@ -348,6 +358,14 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error loading connections:', error);
         }
     }
+
+    scenarioSelect.addEventListener('change', () => {
+        if (scenarioSelect.value === 'CUSTOM_SQL') {
+            customSqlCard.style.display = 'block';
+        } else {
+            customSqlCard.style.display = 'none';
+        }
+    });
 
     connectionSelect.addEventListener('change', () => {
         const selectedAlias = connectionSelect.value;
@@ -461,6 +479,10 @@ document.addEventListener('DOMContentLoaded', () => {
             password: passwordInput.value,
             dbType: dbTypeSelect.value,
         };
+
+        if (params.scenario === 'CUSTOM_SQL') {
+            params.customSql = customSqlInput.value;
+        }
 
         if (!params.ip || !params.port || !params.dbName) {
             alert('请先选择或配置一个有效的数据库连接。');
