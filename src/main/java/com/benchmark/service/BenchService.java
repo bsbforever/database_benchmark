@@ -354,10 +354,11 @@ public class BenchService {
         try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
             String timeType = "DB2".equals(currentDbType) ? "TIMESTAMP" : "DATETIME";
             String identityClause = "DB2".equals(currentDbType) ? "GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1)" : "AUTO_INCREMENT";
+            String clobType = "DB2".equals(currentDbType) ? "CLOB(1M)" : "TEXT";
 
             Map<String, String> tables = new LinkedHashMap<>();
             tables.put("bench_test", String.format("CREATE TABLE bench_test (id BIGINT PRIMARY KEY, create_time %s)", timeType));
-            tables.put("bench_users", String.format("CREATE TABLE bench_users (id BIGINT PRIMARY KEY %s, name VARCHAR(255), extra_info CLOB)", identityClause));
+            tables.put("bench_users", String.format("CREATE TABLE bench_users (id BIGINT PRIMARY KEY %s, name VARCHAR(255), extra_info %s)", identityClause, clobType));
             tables.put("bench_products", String.format("CREATE TABLE bench_products (id BIGINT PRIMARY KEY %s, name VARCHAR(255), stock INT)", identityClause));
             tables.put("bench_orders", String.format("CREATE TABLE bench_orders (id BIGINT PRIMARY KEY %s, user_id BIGINT, product_id BIGINT, order_time %s)", identityClause, timeType));
 
