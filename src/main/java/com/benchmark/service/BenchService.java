@@ -12,9 +12,11 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map; // 新增
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.ConcurrentHashMap; // 新增
 
 @Service
 public class BenchService {
@@ -186,49 +188,73 @@ public class BenchService {
         String status = "OK", color = "#4caf50", errorMsg = "";
         boolean isSuccess = true;
         long currentId = ThreadLocalRandom.current().nextLong(defaultDataRange);
-
-        String nowFunction = "DB2".equals(currentDbType) ? "CURRENT_TIMESTAMP" : "NOW()";
-        String replaceSql, updateSql;
-
-        if ("DB2".equals(currentDbType)) {
-            replaceSql = "MERGE INTO bench_test AS t " +
-                         "USING (VALUES (?, " + nowFunction + ")) AS s(id, create_time) " +
-                         "ON t.id = s.id " +
-                         "WHEN MATCHED THEN UPDATE SET t.create_time = s.create_time " +
-                         "WHEN NOT MATCHED THEN INSERT (id, create_time) VALUES (s.id, s.create_time)";
-            updateSql = "UPDATE bench_test SET create_time = " + nowFunction + " WHERE id = ?";
-        } else {
-            replaceSql = "REPLACE INTO bench_test (id, create_time) VALUES (?, " + nowFunction + ")";
-            updateSql = "UPDATE bench_test SET create_time = " + nowFunction + " WHERE id = ?";
-        }
+        if (currentId == 0) currentId = 1;
 
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 switch (this.currentScenario) {
-                    case "READ_ONLY": // 5R:0W
-                        for (int i=0; i<5; i++) {
-                            try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) {
+                    case "READ_ONLY": // 10R, 0W on products
+                        for (int i = 0; i < 10; i++) {
+                            try (PreparedStatement stmt = conn.prepareStatement("SELECT name, stock FROM bench_products WHERE id = ?")) {
                                 stmt.setLong(1, currentId);
                                 stmt.executeQuery();
                                 totalSqlCount.increment();
                             }
                         }
                         break;
-                    case "WRITE_HEAVY": // 2R:3W
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                    case "RW_2_8": // 2R, 8W on orders and products
+                        // Read product and user
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT stock FROM bench_products WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        // Write orders and update stock
+                        for (int i=0; i<4; i++) {
+                            try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO bench_orders (user_id, product_id, order_time) VALUES (?, ?, CURRENT_TIMESTAMP)")) {
+                                stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment();
+                            }
+                            try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_products SET stock = stock - 1 WHERE id = ?")) {
+                                stmt.setLong(1, currentId);
+                                stmt.executeUpdate();
+                                totalSqlCount.increment();
+                            }
+                        }
                         break;
-                    case "READ_HEAVY": // 4R:1W
+                    case "RW_5_5": // 5R, 5W mixed
+                        // 5 reads
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_users WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_products WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM bench_orders WHERE user_id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT name FROM bench_users WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("SELECT name FROM bench_products WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        // 5 writes
+                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_users SET name = 'user_' || ? WHERE id = ?")) { stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_products SET stock = stock + 1 WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO bench_orders (user_id, product_id, order_time) VALUES (?, ?, CURRENT_TIMESTAMP)")) { stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_products SET stock = stock - 1 WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_users SET name = 'user_' || ? WHERE id = ?")) { stmt.setLong(1, currentId); stmt.setLong(2, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
+                        break;
+                    case "RW_8_2": // 8R, 2W on users
                     default:
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement(replaceSql)) { stmt.setLong(1, currentId); stmt.executeUpdate(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
-                        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM bench_test WHERE id = ?")) { stmt.setLong(1, currentId); stmt.executeQuery(); totalSqlCount.increment(); }
+                        for (int i = 0; i < 4; i++) {
+                            try (PreparedStatement stmt = conn.prepareStatement("SELECT name, extra_info FROM bench_users WHERE id = ?")) {
+                                stmt.setLong(1, currentId);
+                                stmt.executeQuery();
+                                totalSqlCount.increment();
+                            }
+                            try (PreparedStatement stmt = conn.prepareStatement("SELECT id, name FROM bench_users WHERE id = ?")) {
+                                stmt.setLong(1, currentId);
+                                stmt.executeQuery();
+                                totalSqlCount.increment();
+                            }
+                        }
+                        for (int i = 0; i < 2; i++) {
+                             try (PreparedStatement stmt = conn.prepareStatement("UPDATE bench_users SET name = 'user_' || ? WHERE id = ?")) {
+                                stmt.setLong(1, currentId);
+                                stmt.setLong(2, currentId);
+                                stmt.executeUpdate();
+                                totalSqlCount.increment();
+                            }
+                        }
                         break;
                 }
                 conn.commit();
@@ -324,35 +350,37 @@ public class BenchService {
     }
 
     private void initSchema() throws SQLException {
-        String ddl;
-        if ("DB2".equals(currentDbType)) {
-            ddl = "CREATE TABLE bench_test (" +
-                  "id BIGINT PRIMARY KEY NOT NULL, " +
-                  "create_time TIMESTAMP" +
-                  ")";
-        } else {
-            ddl = "CREATE TABLE IF NOT EXISTS bench_test (" +
-                  "id BIGINT PRIMARY KEY, " +
-                  "create_time DATETIME" +
-                  ")";
-        }
-
         try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
-            boolean tableExists = false;
-            if ("DB2".equals(currentDbType)) {
-                try (var rs = conn.getMetaData().getTables(null, null, "BENCH_TEST", null)) {
+            String timeType = "DB2".equals(currentDbType) ? "TIMESTAMP" : "DATETIME";
+            String identityClause = "DB2".equals(currentDbType) ? "GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1)" : "AUTO_INCREMENT";
+
+            Map<String, String> tables = new LinkedHashMap<>();
+            tables.put("bench_test", String.format("CREATE TABLE bench_test (id BIGINT PRIMARY KEY, create_time %s)", timeType));
+            tables.put("bench_users", String.format("CREATE TABLE bench_users (id BIGINT PRIMARY KEY %s, name VARCHAR(255), extra_info CLOB)", identityClause));
+            tables.put("bench_products", String.format("CREATE TABLE bench_products (id BIGINT PRIMARY KEY %s, name VARCHAR(255), stock INT)", identityClause));
+            tables.put("bench_orders", String.format("CREATE TABLE bench_orders (id BIGINT PRIMARY KEY %s, user_id BIGINT, product_id BIGINT, order_time %s)", identityClause, timeType));
+
+            for (Map.Entry<String, String> entry : tables.entrySet()) {
+                String tableName = entry.getKey();
+                String ddl = entry.getValue();
+
+                boolean tableExists = false;
+                // For DB2, table names are typically uppercase in catalog
+                String catalogTableName = "DB2".equals(currentDbType) ? tableName.toUpperCase() : tableName;
+                try (var rs = conn.getMetaData().getTables(null, null, catalogTableName, null)) {
                     if (rs.next()) {
                         tableExists = true;
                     }
                 }
-            }
 
-            if (!tableExists) {
-                stmt.execute(ddl);
-            }
+                if (!tableExists) {
+                    stmt.execute(ddl);
+                    sendLog("LOG", String.format("📄 表 '%s' 不存在，已自动创建。", tableName));
+                }
 
-            String truncateSql = "DB2".equals(currentDbType) ? "TRUNCATE TABLE bench_test IMMEDIATE" : "TRUNCATE TABLE bench_test";
-            stmt.execute(truncateSql);
+                String truncateSql = "DB2".equals(currentDbType) ? "TRUNCATE TABLE " + tableName + " IMMEDIATE" : "TRUNCATE TABLE " + tableName;
+                stmt.execute(truncateSql);
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Schema 初始化失败: " + e.getMessage(), e);
         }
