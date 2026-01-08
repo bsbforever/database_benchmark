@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.LongAdder;
 @Service
 public class BenchService {
 
-    private static final int SQLS_PER_TX = 5; // Reverted back for scenario-based logic
+    private static final int SQLS_PER_TX = 10; // 每个事务10个SQL
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
     private final AtomicBoolean isRunning = new AtomicBoolean(false);

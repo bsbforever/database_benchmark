@@ -179,9 +179,10 @@
                         <div class="mt-2">
                             <label for="scenario" class="form-label small">压测场景</label>
                             <select id="scenario" class="form-select form-select-sm">
-                                <option value="READ_HEAVY" selected>读多写少 (4R:1W)</option>
-                                <option value="READ_ONLY">纯读取 (5R:0W)</option>
-                                <option value="WRITE_HEAVY">写多读少 (2R:3W)</option>
+                                <option value="READ_ONLY">纯读 (10R:0W)</option>
+                                <option value="RW_8_2" selected>读写 8:2</option>
+                                <option value="RW_2_8">读写 2:8</option>
+                                <option value="RW_5_5">读写 5:5</option>
                             </select>
                         </div>
                         <div class="d-grid gap-2 mt-3">
