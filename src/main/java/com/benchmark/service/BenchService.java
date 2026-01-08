@@ -100,17 +100,23 @@ public class BenchService {
                 benchmarkExecutor = Executors.newFixedThreadPool(actualThreadCount);
                 for (int i = 0; i < actualThreadCount; i++) {
                     benchmarkExecutor.submit(() -> {
-                        long seq = 0;
-                        while (isRunning.get()) {
-                            seq++;
-                            probeDatabase(seq, actualSampleRate);
-                            if (actualInterval > 0) {
-                                try {
-                                    TimeUnit.MILLISECONDS.sleep(actualInterval);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
+                        try {
+                            long seq = 0;
+                            while (isRunning.get()) {
+                                seq++;
+                                probeDatabase(seq, actualSampleRate);
+                                if (actualInterval > 0) {
+                                    try {
+                                        TimeUnit.MILLISECONDS.sleep(actualInterval);
+                                    } catch (InterruptedException e) {
+                                        Thread.currentThread().interrupt();
+                                    }
                                 }
                             }
+                        } catch (Exception e) {
+                            // Force print stack trace for silent exceptions
+                            e.printStackTrace();
+                            sendLog("LOG", "<span style='color:red'>❌ 压测线程异常终止: " + e.getClass().getName() + "</span>");
                         }
                     });
                 }
@@ -434,15 +440,18 @@ public class BenchService {
 
     private void initSchema() throws SQLException {
         try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
-            String timeType = "DB2".equals(currentDbType) ? "TIMESTAMP" : "DATETIME";
-            String identityClause = "DB2".equals(currentDbType) ? "GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1)" : "AUTO_INCREMENT";
-            String clobType = "DB2".equals(currentDbType) ? "CLOB(1M)" : "TEXT";
-
             Map<String, String> tables = new LinkedHashMap<>();
-            tables.put("bench_test", String.format("CREATE TABLE bench_test (id BIGINT PRIMARY KEY, create_time %s)", timeType));
-            tables.put("bench_users", String.format("CREATE TABLE bench_users (id BIGINT PRIMARY KEY %s, name VARCHAR(255), extra_info %s)", identityClause, clobType));
-            tables.put("bench_products", String.format("CREATE TABLE bench_products (id BIGINT PRIMARY KEY %s, name VARCHAR(255), stock INT)", identityClause));
-            tables.put("bench_orders", String.format("CREATE TABLE bench_orders (id BIGINT PRIMARY KEY %s, user_id BIGINT, product_id BIGINT, order_time %s)", identityClause, timeType));
+            if ("DB2".equals(currentDbType)) {
+                tables.put("bench_test", "CREATE TABLE bench_test (id BIGINT NOT NULL PRIMARY KEY, create_time TIMESTAMP)");
+                tables.put("bench_users", "CREATE TABLE bench_users (id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1), name VARCHAR(255), extra_info CLOB(1M), PRIMARY KEY(id))");
+                tables.put("bench_products", "CREATE TABLE bench_products (id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1), name VARCHAR(255), stock INT, PRIMARY KEY(id))");
+                tables.put("bench_orders", "CREATE TABLE bench_orders (id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1), user_id BIGINT, product_id BIGINT, order_time TIMESTAMP, PRIMARY KEY(id))");
+            } else { // MySQL and default
+                tables.put("bench_test", "CREATE TABLE IF NOT EXISTS bench_test (id BIGINT PRIMARY KEY, create_time DATETIME)");
+                tables.put("bench_users", "CREATE TABLE IF NOT EXISTS bench_users (id BIGINT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255), extra_info TEXT)");
+                tables.put("bench_products", "CREATE TABLE IF NOT EXISTS bench_products (id BIGINT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255), stock INT)");
+                tables.put("bench_orders", "CREATE TABLE IF NOT EXISTS bench_orders (id BIGINT PRIMARY KEY AUTO_INCREMENT, user_id BIGINT, product_id BIGINT, order_time DATETIME)");
+            }
 
             for (Map.Entry<String, String> entry : tables.entrySet()) {
                 String tableName = entry.getKey();
